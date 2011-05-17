@@ -15,7 +15,7 @@
     <orderEntry type="sourceFolder" forTests="false" />
     <orderEntry type="library" name="Maven: org.apache.maven:maven-core:3.0.3" level="project" />
     <orderEntry type="library" name="Maven: org.apache.maven:maven-model:3.0.3" level="project" />
-    <orderEntry type="library" name="Maven: org.codehaus.plexus:plexus-utils:2.0.5" level="project" />
+    <orderEntry type="library" name="Maven: org.codehaus.plexus:plexus-utils:2.0.7" level="project" />
     <orderEntry type="library" name="Maven: org.apache.maven:maven-settings:3.0.3" level="project" />
     <orderEntry type="library" name="Maven: org.apache.maven:maven-settings-builder:3.0.3" level="project" />
     <orderEntry type="library" name="Maven: org.codehaus.plexus:plexus-interpolation:1.14" level="project" />
@@ -43,7 +43,6 @@
     <orderEntry type="library" name="Maven: junit:junit:3.8.1" level="project" />
     <orderEntry type="library" name="Maven: classworlds:classworlds:1.1-alpha-2" level="project" />
     <orderEntry type="library" name="Maven: org.codehaus.plexus:plexus-io:1.0" level="project" />
-    <orderEntry type="library" name="Maven: org.sonatype.plexus:plexus-bundle-publisher:1.1" level="project" />
   </component>
 </module>
 
