@@ -16,6 +16,9 @@ import org.codehaus.plexus.archiver.ArchiverException;
 import org.codehaus.plexus.archiver.zip.ZipArchiver;
 import org.codehaus.plexus.component.annotations.Component;
 import org.codehaus.plexus.component.annotations.Requirement;
+import org.codehaus.plexus.util.xml.XmlStreamReader;
+import org.codehaus.plexus.util.xml.Xpp3Dom;
+import org.codehaus.plexus.util.xml.Xpp3DomBuilder;
 
 import java.io.File;
 import java.io.FileWriter;
@@ -49,7 +52,6 @@ public class FlexSdkInstallMojo extends AbstractMojo {
 
   private static final Set<String> SMALL_SDK_ARTIFACTS_IDS = new HashSet<String>();
   static {
-    @SuppressWarnings({"MismatchedQueryAndUpdateOfCollection"})
     Set<String> set = SMALL_SDK_ARTIFACTS_IDS;
     set.add("airframework");
     set.add("framework");
@@ -63,7 +65,6 @@ public class FlexSdkInstallMojo extends AbstractMojo {
   private static final String[] MXMLC_SOURCE_INCLUDES = new String[]{"**/*.properties", "flex2/compiler/**/*", "flex2/license/**/*", "flex2/linker/**/*", "flex2/tools/*", "flash/**/*", "flex/**/*"};
 
   static {
-    @SuppressWarnings({"MismatchedQueryAndUpdateOfCollection"})
     Set<String> set = EXLUDED_COMPILER_JARS;
     set.add("smali.jar");
     set.add("baksmali.jar");
@@ -100,15 +101,10 @@ public class FlexSdkInstallMojo extends AbstractMojo {
   /**
    * File location where targeted Flex SDK is located
    * @parameter expression="${compilerHome}"
-   * @required
    */
   @SuppressWarnings({"UnusedDeclaration"}) private File compilerHome;
 
-  /**
-   * @parameter expression="${version}"
-   * @required
-   */
-  @SuppressWarnings({"UnusedDeclaration"}) private String version;
+  private String version;
 
   /**
    * @parameter expression="${airVersion}"
@@ -129,6 +125,19 @@ public class FlexSdkInstallMojo extends AbstractMojo {
    */
   @SuppressWarnings({"UnusedDeclaration"}) private boolean skipRsls;
 
+  /**
+   * @parameter expression="${skipCompiler}"
+   * @readonly
+   */
+  @SuppressWarnings({"UnusedDeclaration"}) private boolean skipCompiler;
+
+  /**
+   * @parameter expression="${artifactIdFilter}"
+   * @readonly
+   */
+  @SuppressWarnings({"UnusedDeclaration"})
+  private String artifactIdFilter;
+
   private File frameworkSources;
   private File frameworks;
   private File tempFile;
@@ -137,7 +146,14 @@ public class FlexSdkInstallMojo extends AbstractMojo {
     frameworks = new File(home, "frameworks");
     frameworkSources = new File(frameworks, "projects");
 
+    if (compilerHome == null) {
+      compilerHome = home;
+    }
+
     try {
+      final Xpp3Dom dom = Xpp3DomBuilder.build(new XmlStreamReader(new File(home, "flex-sdk-description.xml")));
+      version = dom.getChild("version").getValue() + "." + dom.getChild("build").getValue();
+
       tempFile = File.createTempFile("tmp", null);
       tempFile.deleteOnExit();
       
@@ -151,7 +167,9 @@ public class FlexSdkInstallMojo extends AbstractMojo {
         processRsls();
       }
 
-      processCompiler();
+      if (!skipCompiler) {
+        processCompiler();
+      }
 
       createAggregators();
     }
@@ -183,7 +201,9 @@ public class FlexSdkInstallMojo extends AbstractMojo {
     createAggregator(FRAMEWORK_GROUP_ID, "flex-framework-small", smallFlex);
     createAggregator(FRAMEWORK_GROUP_ID, "air-framework-small", smallAir);
 
-    createAggregator("com.adobe.flex", "compiler", compiler);
+    if (!skipCompiler) {
+      createAggregator("com.adobe.flex", "compiler", compiler);
+    }
   }
 
   private void createAggregator(final String groupId, final String artifactId, final List<Artifact> artifacts) throws IOException, MojoExecutionException, ArtifactInstallationException {
