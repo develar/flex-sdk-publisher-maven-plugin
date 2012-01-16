@@ -11,11 +11,15 @@ import org.apache.maven.model.io.xpp3.MavenXpp3Writer;
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.MojoFailureException;
+import org.apache.maven.project.artifact.ProjectArtifactMetadata;
 import org.codehaus.plexus.archiver.Archiver;
 import org.codehaus.plexus.archiver.ArchiverException;
 import org.codehaus.plexus.archiver.zip.ZipArchiver;
 import org.codehaus.plexus.component.annotations.Component;
 import org.codehaus.plexus.component.annotations.Requirement;
+import org.codehaus.plexus.util.FileUtils;
+import org.codehaus.plexus.util.IOUtil;
+import org.codehaus.plexus.util.WriterFactory;
 import org.codehaus.plexus.util.xml.XmlStreamReader;
 import org.codehaus.plexus.util.xml.Xpp3Dom;
 import org.codehaus.plexus.util.xml.Xpp3DomBuilder;
@@ -23,10 +27,13 @@ import org.codehaus.plexus.util.xml.Xpp3DomBuilder;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.io.Writer;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static org.flyti.FlexSdkInstallMojo.Classifier.*;
 import static org.flyti.FlexSdkInstallMojo.Type.*;
@@ -39,6 +46,8 @@ import static org.flyti.FlexSdkInstallMojo.Type.*;
 public class FlexSdkInstallMojo extends AbstractMojo {
   private static final String FRAMEWORK_GROUP_ID = "com.adobe.flex.framework";
   private static final String COMPILER_GROUP_ID = "com.adobe.flex.compiler";
+
+  private static final Pattern INFO_PLIST_VERSION_PATTERN = Pattern.compile("<key>CFBundleVersion</key>\\s*<string>(.*)</string>");
 
   private static final String SWC_TYPE = "swc";
   private static final String RB_TYPE = "rb.swc";
@@ -96,21 +105,20 @@ public class FlexSdkInstallMojo extends AbstractMojo {
    * @parameter expression="${home}"
    * @required
    */
-  @SuppressWarnings({"UnusedDeclaration"}) private File home;
+  @SuppressWarnings({"UnusedDeclaration"})
+  private File home;
 
   /**
    * File location where targeted Flex SDK is located
    * @parameter expression="${compilerHome}"
    */
-  @SuppressWarnings({"UnusedDeclaration"}) private File compilerHome;
+  @SuppressWarnings({"UnusedDeclaration"})
+  private File compilerHome;
 
   private String version;
-
-  /**
-   * @parameter expression="${airVersion}"
-   * @required
-   */
-  @SuppressWarnings({"UnusedDeclaration"}) private String airVersion;
+  private String airVersion;
+  
+  private File generatedPomFile;
 
   /**
    * @parameter expression="${localRepository}"
@@ -151,6 +159,15 @@ public class FlexSdkInstallMojo extends AbstractMojo {
     }
 
     try {
+      generatedPomFile = File.createTempFile("mvninstall", ".pom");
+
+      File aiInfo = new File(home, "runtimes/air/mac/Adobe AIR.framework/Resources/Info.plist");
+      if (aiInfo.exists()) {
+        Matcher matcher = INFO_PLIST_VERSION_PATTERN.matcher(FileUtils.fileRead(aiInfo));
+        matcher.find();
+        airVersion = matcher.group(1);
+      }
+
       final Xpp3Dom dom = Xpp3DomBuilder.build(new XmlStreamReader(new File(home, "flex-sdk-description.xml")));
       version = dom.getChild("version").getValue() + "." + dom.getChild("build").getValue();
 
@@ -174,6 +191,9 @@ public class FlexSdkInstallMojo extends AbstractMojo {
       createAggregators();
     }
     catch (Exception e) {
+      //noinspection ResultOfMethodCallIgnored
+      generatedPomFile.delete();
+
       throw new MojoFailureException("Cannot publish", e);
     }
   }
@@ -393,7 +413,17 @@ public class FlexSdkInstallMojo extends AbstractMojo {
   }
 
   private Artifact createArtifact(String groupId, String artifactId, Type type, Classifier classifier) {
-    return artifactFactory.createArtifactWithClassifier(groupId, artifactId, artifactId.equals("airglobal") || artifactId.equals("adt") ? airVersion : version, type.name(), classifier == null ? null : classifier.name());
+    final String artifactVersion;
+    if (artifactId.equals("airglobal") || artifactId.equals("adt")) {
+      if (airVersion == null) {
+        throw new IllegalStateException("airVersion cannot be determined, but artifactId exists");
+      }
+      artifactVersion = airVersion;
+    }
+    else {
+      artifactVersion = version;
+    }
+    return artifactFactory.createArtifactWithClassifier(groupId, artifactId, artifactVersion, type.name(), classifier == null ? null : classifier.name());
   }
 
   private Artifact createArtifact(String groupId, String artifactId, Type type) {
@@ -402,11 +432,48 @@ public class FlexSdkInstallMojo extends AbstractMojo {
   }
   
   protected void publish(Artifact artifact, File file) throws ArtifactInstallationException, MojoExecutionException {
+    if (!artifact.getType().equals("pom")) {
+      generatePomFile(artifact);
+      ProjectArtifactMetadata pomMetadata = new ProjectArtifactMetadata(artifact, generatedPomFile);
+      artifact.addMetadata(pomMetadata);
+    }
+
     installer.install(file, artifact, localRepository);
   }
 
   private String filenameToArtifactId(String filename) {
     return filename.substring(0, filename.length() - 4);
+  }
+
+  private Model generateModel(Artifact artifact) {
+    Model model = new Model();
+
+    model.setModelVersion("4.0.0");
+
+    model.setGroupId(artifact.getGroupId());
+    model.setArtifactId(artifact.getArtifactId());
+    model.setVersion(artifact.getVersion());
+    model.setPackaging(artifact.getType());
+
+    model.setDescription("POM was created from https://github.com/develar/flex-sdk-publisher-maven-plugin");
+
+    return model;
+  }
+
+  private File generatePomFile(Artifact artifact) throws MojoExecutionException {
+    Model model = generateModel(artifact);
+    Writer writer = null;
+    try {
+      writer = WriterFactory.newXmlWriter(generatedPomFile);
+      new MavenXpp3Writer().write(writer, model);
+      return generatedPomFile;
+    }
+    catch (IOException e) {
+      throw new MojoExecutionException("Error writing temporary POM file: " + e.getMessage(), e);
+    }
+    finally {
+      IOUtil.close(writer);
+    }
   }
 
   enum Classifier {
