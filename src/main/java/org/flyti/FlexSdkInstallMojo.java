@@ -28,10 +28,7 @@ import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.Writer;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -335,16 +332,62 @@ public class FlexSdkInstallMojo extends AbstractMojo {
     }
   }
 
+  private static int compareVersionNumbers(String v1, String v2) {
+    if (v1 == null && v2 == null) {
+      return 0;
+    }
+    if (v1 == null) {
+      return -1;
+    }
+    if (v2 == null) {
+      return 1;
+    }
+
+    String[] part1 = v1.split("[\\.\\_\\-]");
+    String[] part2 = v2.split("[\\.\\_\\-]");
+
+    int idx = 0;
+    for (; idx < part1.length && idx < part2.length; idx++) {
+      String p1 = part1[idx];
+      String p2 = part2[idx];
+
+      int cmp;
+      if (p1.matches("\\d+") && p2.matches("\\d+")) {
+        cmp = new Integer(p1).compareTo(new Integer(p2));
+      }
+      else {
+        cmp = part1[idx].compareTo(part2[idx]);
+      }
+      if (cmp != 0) return cmp;
+    }
+
+    if (part1.length == part2.length) {
+      return 0;
+    }
+    else if (part1.length > idx) {
+      return 1;
+    }
+    else {
+      return -1;
+    }
+  }
+
   private void processPlayerGlobalDirectory(File directory) throws MojoExecutionException, ArtifactInstallationException {
+    String[] list = directory.list();
+    Arrays.sort(list, new Comparator<String>() {
+      public int compare(String o1, String o2) {
+        return compareVersionNumbers(o2, o1);
+      }
+    });
+
     boolean added = false;
-    for (String version : directory.list()) {
+    for (String version : list) {
       if (version.charAt(0) != '.') {
         Artifact artifact = artifactFactory.createArtifactWithClassifier(FRAMEWORK_GROUP_ID, "playerglobal", version, SWC_TYPE, null);
-        if (added) {
-          throw new IllegalArgumentException("sort playerglobal version");
+        if (!added) {
+          smallFlex.add(artifact);
         }
         added = true;
-        smallFlex.add(artifact);
 
         publish(artifact, new File(directory, version + "/playerglobal.swc"));
       }
